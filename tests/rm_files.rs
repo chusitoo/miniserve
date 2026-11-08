@@ -277,3 +277,22 @@ fn rm_from_symlinked_dir(
     }
     Ok(())
 }
+
+/// The served directory itself can never be deleted.
+#[rstest]
+#[case("rm?path=/")]
+#[case("rm?path=")]
+fn cannot_rm_served_dir(
+    #[with(&["-R"])] server: TestServer,
+    reqwest_client: Client,
+    #[case] del_path: &str,
+) -> Result<(), Error> {
+    let status = reqwest_client
+        .post(server.url().join(del_path)?)
+        .send()?
+        .status();
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(server.path().join(FILES[0]).exists());
+    Ok(())
+}

@@ -585,7 +585,10 @@ pub async fn rm_file(
     }
 
     // Remove
-    let rm_res = if canonicalized_rm_path.is_dir() {
+    let rm_res = if app_root_dir.starts_with(&canonicalized_rm_path) {
+        // Never delete the served directory or one of its ancestors
+        return Err(RuntimeError::RmForbiddenError);
+    } else if canonicalized_rm_path.is_dir() {
         fs::remove_dir_all(&canonicalized_rm_path).await
     } else {
         fs::remove_file(&canonicalized_rm_path).await
