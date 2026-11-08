@@ -234,6 +234,10 @@ where
                     )
                 })?
                 .path();
+            // `std::fs::metadata` follows symlinks, so check for them beforehand
+            if skip_symlinks && entry_path.is_symlink() {
+                continue;
+            }
             let entry_metadata = std::fs::metadata(entry_path.clone()).map_err(|e| {
                 RuntimeError::IoError(
                     format!(
@@ -245,9 +249,6 @@ where
                 )
             })?;
 
-            if entry_metadata.file_type().is_symlink() && skip_symlinks {
-                continue;
-            }
             let current_entry_name = entry_path.file_name().ok_or_else(|| {
                 RuntimeError::InvalidPathError("Invalid file or directory name".to_string())
             })?;

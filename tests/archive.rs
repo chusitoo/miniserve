@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
 use reqwest::{StatusCode, blocking::Client};
 use rstest::rstest;
@@ -262,6 +262,72 @@ fn zip_archives_store_entry_name_in_unix_style(
             name
         );
     }
+
+    Ok(())
+}
+
+/// Download the archive of `dir` and return the names of its entries.
+fn archive_entry_names(
+    reqwest_client: &Client,
+    server: &TestServer,
+    dir: &str,
+    kind: ArchiveKind,
+) -> Result<Vec<String>, Error> {
+    let bytes = reqwest_client
+        .get(
+            server
+                .url()
+                .join(&format!("{dir}{}", kind.download_param()))?,
+        )
+        .send()?
+        .error_for_status()?
+        .bytes()?;
+
+    let mut names = Vec::new();
+    let tar_reader: Box<dyn Read> = match kind {
+        ArchiveKind::Zip => {
+            let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+            for i in 0..archive.len() {
+                names.push(archive.by_index(i)?.name()?.into_owned());
+            }
+            return Ok(names);
+        }
+        ArchiveKind::TarGz => Box::new(libflate::gzip::Decoder::new(Cursor::new(bytes))?),
+        ArchiveKind::Tar => Box::new(Cursor::new(bytes)),
+    };
+    let mut archive = tar::Archive::new(tar_reader);
+    for entry in archive.entries()? {
+        names.push(entry?.path()?.to_string_lossy().into_owned());
+    }
+
+    Ok(names)
+}
+
+/// ZIP archives leave out symlinks when --no-symlinks is set.
+#[rstest]
+#[case(server(&["--enable-zip"]), true)]
+#[case(server(&["--enable-zip", "--no-symlinks"]), false)]
+fn zip_archives_respect_no_symlinks(
+    #[case] server: TestServer,
+    #[case] symlinks_included: bool,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink as symlink_file;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_file;
+
+    symlink_file(
+        server.path().join("test.txt"),
+        server.path().join("someDir/link"),
+    )?;
+
+    let names = archive_entry_names(&reqwest_client, &server, "someDir/", ArchiveKind::Zip)?;
+    assert!(names.iter().any(|name| name.ends_with("alpha")));
+    assert_eq!(
+        names.iter().any(|name| name.ends_with("link")),
+        symlinks_included
+    );
 
     Ok(())
 }
