@@ -1,3 +1,5 @@
+use std::path::{Component, PathBuf};
+
 use reqwest::blocking::{Client, multipart};
 use rstest::rstest;
 use select::{
@@ -174,6 +176,37 @@ fn prevent_path_transversal_attacks(
             .error_for_status()
             .is_err()
     );
+
+    Ok(())
+}
+
+/// Absolute directory names must be created inside the served directory, never at that
+/// absolute location (`--hidden` because temporary directories have hidden names).
+#[rstest]
+fn creating_directories_with_absolute_path_stays_inside_root(
+    #[with(&["--upload-files", "--mkdir", "--hidden"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let outside = assert_fs::TempDir::new()?;
+    let escaped_path = outside.path().join("escaped");
+    let inside_path = server.path().join(
+        escaped_path
+            .components()
+            .filter(|c| matches!(c, Component::Normal(_)))
+            .collect::<PathBuf>(),
+    );
+
+    let part = multipart::Part::text(escaped_path.to_string_lossy().into_owned());
+    let form = multipart::Form::new().part("mkdir", part);
+
+    reqwest_client
+        .post(server.url().join("/upload?path=/")?)
+        .multipart(form)
+        .send()?
+        .error_for_status()?;
+
+    assert!(!escaped_path.exists());
+    assert!(inside_path.is_dir());
 
     Ok(())
 }

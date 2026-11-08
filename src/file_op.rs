@@ -340,7 +340,6 @@ async fn handle_multipart(
         }
 
         let mut user_given_path = PathBuf::new();
-        let mut absolute_path = path.clone();
 
         // Get the path the user gave
         let mkdir_path_bytes = field.try_next().await;
@@ -353,7 +352,6 @@ async fn handle_multipart(
                     )
                 })?;
                 let mkdir_path = mkdir_path.replace('\\', "/");
-                absolute_path.push(&mkdir_path);
                 user_given_path.push(&mkdir_path);
             }
             _ => {
@@ -374,9 +372,12 @@ async fn handle_multipart(
             ));
         }
         // Hidden paths check
-        sanitize_path(&user_given_path, allow_hidden_paths).ok_or_else(|| {
-            RuntimeError::InvalidPathError("Cannot use hidden paths in mkdir path".to_string())
-        })?;
+        let sanitized_path =
+            sanitize_path(&user_given_path, allow_hidden_paths).ok_or_else(|| {
+                RuntimeError::InvalidPathError("Cannot use hidden paths in mkdir path".to_string())
+            })?;
+        // Join the sanitized path: joining an absolute path would replace the base directory
+        let absolute_path = path.join(sanitized_path);
 
         // Ensure there are no illegal symlinks
         if !allow_symlinks {
