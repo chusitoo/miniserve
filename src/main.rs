@@ -244,6 +244,7 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
 
     let srv = actix_web::HttpServer::new(move || {
         App::new()
+            .wrap(from_fn(auth::cross_origin_protection))
             .wrap(configure_header(&inside_config.clone()))
             .app_data(web::Data::new(inside_config.clone()))
             .app_data(stylesheet.clone())

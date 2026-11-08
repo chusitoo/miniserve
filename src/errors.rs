@@ -81,6 +81,10 @@ pub enum RuntimeError {
     #[error("Invalid credentials for HTTP authentication")]
     InvalidHttpCredentials,
 
+    /// Might occur when a browser sends a state-changing request from another origin
+    #[error("Cross-origin request rejected")]
+    CrossOriginRequestError,
+
     /// Might occur when an HTTP request is invalid
     #[error("Invalid HTTP request\ncaused by: {0}")]
     InvalidHttpRequestError(String),
@@ -107,6 +111,7 @@ impl ResponseError for RuntimeError {
             E::ArchiveCreationError(_, err) => err.status_code(),
             E::ArchiveCreationDetailError(_) => S::INTERNAL_SERVER_ERROR,
             E::InvalidHttpCredentials => S::UNAUTHORIZED,
+            E::CrossOriginRequestError => S::FORBIDDEN,
             E::InvalidHttpRequestError(_) => S::BAD_REQUEST,
             E::RouteNotFoundError(_) => S::NOT_FOUND,
         }

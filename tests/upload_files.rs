@@ -618,6 +618,47 @@ fn truncated_upload_is_discarded(
     Ok(())
 }
 
+/// Browsers flag cross-origin requests, which must not be able to upload files (CSRF).
+/// `{self}` is replaced by the origin of the test server.
+#[rstest]
+#[case::cross_site(&[("Sec-Fetch-Site", "cross-site")], false)]
+#[case::same_site(&[("Sec-Fetch-Site", "same-site")], false)]
+#[case::same_origin(&[("Sec-Fetch-Site", "same-origin"), ("Origin", "{self}")], true)]
+#[case::foreign_origin(&[("Origin", "https://evil.example")], false)]
+#[case::null_origin(&[("Origin", "null")], false)]
+#[case::matching_origin(&[("Origin", "{self}")], true)]
+#[case::non_browser(&[] as &[(&str, &str)], true)]
+fn uploading_files_from_other_origins_is_prevented(
+    #[with(&["-u"])] server: TestServer,
+    reqwest_client: Client,
+    #[case] headers: &[(&str, &str)],
+    #[case] ok: bool,
+) -> Result<(), Error> {
+    let test_file_name = "uploaded test file.txt";
+    let part = multipart::Part::text("this should be uploaded")
+        .file_name(test_file_name)
+        .mime_str("text/plain")?;
+    let form = multipart::Form::new().part("file_to_upload", part);
+
+    let own_origin = server.url().as_str().trim_end_matches('/').to_owned();
+    let mut request = reqwest_client
+        .post(server.url().join("/upload?path=/")?)
+        .multipart(form);
+    for (name, value) in headers {
+        request = request.header(*name, value.replace("{self}", &own_origin));
+    }
+    let response = request.send()?;
+
+    if ok {
+        response.error_for_status()?;
+    } else {
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+    }
+    assert_eq!(server.path().join(test_file_name).exists(), ok);
+
+    Ok(())
+}
+
 /// Test setting the HTML accept attribute using -m and -M.
 #[rstest]
 #[case(server(&["-u"]), None)]

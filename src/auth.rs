@@ -1,4 +1,11 @@
-use actix_web::{HttpMessage, dev::ServiceRequest, web};
+use actix_web::{
+    HttpMessage,
+    body::MessageBody,
+    dev::{ServiceRequest, ServiceResponse},
+    http::{Method, header},
+    middleware::Next,
+    web,
+};
 use actix_web_httpauth::extractors::basic::BasicAuth;
 use sha2::{Digest, Sha256, Sha512};
 
@@ -90,6 +97,42 @@ pub async fn handle_auth(
         Ok(req)
     } else {
         Err((RuntimeError::InvalidHttpCredentials.into(), req))
+    }
+}
+
+/// Middleware rejecting state-changing requests that browsers flag as cross-origin (CSRF).
+///
+/// Non-browser clients send neither `Sec-Fetch-Site` nor `Origin` and are let through.
+pub async fn cross_origin_protection(
+    req: ServiceRequest,
+    next: Next<impl MessageBody + 'static>,
+) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
+    let is_safe_method = matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
+    if !is_safe_method && is_cross_origin(&req) {
+        return Ok(req
+            .error_response(RuntimeError::CrossOriginRequestError)
+            .map_into_right_body());
+    }
+
+    let res = next.call(req).await?;
+    Ok(res.map_into_left_body())
+}
+
+fn is_cross_origin(req: &ServiceRequest) -> bool {
+    if let Some(fetch_site) = req.headers().get("Sec-Fetch-Site") {
+        return !matches!(fetch_site.as_bytes(), b"same-origin" | b"none");
+    }
+
+    // Fallback for browsers without Fetch Metadata support
+    match req.headers().get(header::ORIGIN) {
+        None => false,
+        Some(origin) => origin
+            .to_str()
+            .ok()
+            .and_then(|origin| origin.split_once("://"))
+            .is_none_or(|(_, origin_host)| {
+                !origin_host.eq_ignore_ascii_case(req.connection_info().host())
+            }),
     }
 }
 
