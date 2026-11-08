@@ -343,7 +343,8 @@ pub fn directory_listing(
 
                                 markdown_to_html(&std::fs::read_to_string(entry.path())?, &options)
                             } else {
-                                format!("<pre>{}</pre>", std::fs::read_to_string(entry.path())?)
+                                let text = std::fs::read_to_string(entry.path())?;
+                                maud::html! { pre { (text) } }.into_string()
                             },
                         ));
                     }

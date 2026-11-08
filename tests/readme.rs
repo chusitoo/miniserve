@@ -143,3 +143,26 @@ fn show_nested_readme_contents(
     }
     Ok(())
 }
+
+/// Plain text readme contents must be escaped instead of being rendered as HTML
+#[rstest]
+#[case("README.txt")]
+#[case("README")]
+fn plain_text_readme_contents_are_escaped(
+    #[with(&["--readme"])] server: TestServer,
+    reqwest_client: Client,
+    #[case] readme_name: &str,
+) -> Result<(), Error> {
+    let payload = "<script>alert(1)</script>";
+    std::fs::write(server.path().join(readme_name), payload)?;
+
+    let body = reqwest_client
+        .get(server.url())
+        .send()?
+        .error_for_status()?
+        .text()?;
+
+    assert!(!body.contains(payload));
+    assert!(body.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    Ok(())
+}
