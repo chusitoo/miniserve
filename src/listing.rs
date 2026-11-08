@@ -412,7 +412,9 @@ pub fn directory_listing(
 
         let file_name = format!(
             "{}.{}",
-            dir.path.file_name().unwrap().to_str().unwrap(),
+            dir.path
+                .file_name()
+                .map_or("archive".into(), |name| name.to_string_lossy()),
             archive_method.extension()
         );
 
