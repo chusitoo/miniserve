@@ -319,7 +319,15 @@ async fn handle_multipart(
         file_hash,
         upload_directory,
     } = opts;
-    let field_name = field.name().expect("No name field found").to_string();
+    let field_name = field
+        .name()
+        .ok_or_else(|| {
+            RuntimeError::ParseError(
+                "HTTP header".to_string(),
+                "Failed to retrieve the name of the multipart field".to_string(),
+            )
+        })?
+        .to_string();
 
     match tokio::fs::metadata(&path).await {
         Err(_) => Err(RuntimeError::InsufficientPermissionsError(
@@ -404,8 +412,7 @@ async fn handle_multipart(
 
     let filename = field
         .content_disposition()
-        .expect("No content-disposition field found")
-        .get_filename()
+        .and_then(|cd| cd.get_filename())
         .ok_or_else(|| {
             RuntimeError::ParseError(
                 "HTTP header".to_string(),

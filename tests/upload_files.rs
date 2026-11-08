@@ -538,6 +538,29 @@ fn upload_to_symlink_directory(
     Ok(())
 }
 
+/// Multipart fields without a name must be rejected instead of crashing the server.
+#[rstest]
+fn upload_without_field_name_is_rejected(
+    #[with(&["-u"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let status = reqwest_client
+        .post(server.url().join("/upload?path=/")?)
+        .header("Content-Type", "multipart/mixed; boundary=boundary")
+        .body("--boundary\r\nContent-Type: text/plain\r\n\r\ndata\r\n--boundary--\r\n")
+        .send()?
+        .status();
+    assert!(status.is_client_error());
+
+    // The server must still be serving requests
+    reqwest_client
+        .get(server.url())
+        .send()?
+        .error_for_status()?;
+
+    Ok(())
+}
+
 /// Test setting the HTML accept attribute using -m and -M.
 #[rstest]
 #[case(server(&["-u"]), None)]
