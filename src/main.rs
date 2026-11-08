@@ -508,13 +508,18 @@ async fn api(
                     .map_err(|e| RuntimeError::ParseError(path.clone(), e.to_string()))?;
 
                 // Convert the relative dir to an absolute path on the system.
-                let sanitized_path = file_utils::sanitize_path(&*decoded_path, true)
-                    .expect("Expected a path to directory");
+                let sanitized_path = file_utils::sanitize_path(&*decoded_path, config.show_hidden)
+                    .ok_or_else(|| RuntimeError::InvalidPathError(path.clone()))?;
 
                 let full_path = config
                     .path
                     .canonicalize()
-                    .expect("Couldn't canonicalize path")
+                    .map_err(|e| {
+                        RuntimeError::IoError(
+                            "Failed to resolve path served by miniserve".to_string(),
+                            e,
+                        )
+                    })?
                     .join(sanitized_path);
                 info!("Requested directory listing for {full_path:?}");
 
