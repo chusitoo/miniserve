@@ -561,6 +561,31 @@ fn upload_without_field_name_is_rejected(
     Ok(())
 }
 
+/// An upload whose body ends before the closing boundary (e.g. an aborted transfer) must not
+/// leave a truncated file behind.
+#[rstest]
+fn truncated_upload_is_discarded(
+    #[with(&["-u"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let test_file_name = "truncated.txt";
+    let body = format!(
+        "--boundary\r\nContent-Disposition: form-data; name=\"file_to_upload\"; filename=\"{test_file_name}\"\r\n\r\npartial content"
+    );
+
+    let status = reqwest_client
+        .post(server.url().join("/upload?path=/")?)
+        .header("Content-Type", "multipart/form-data; boundary=boundary")
+        .body(body)
+        .send()?
+        .status();
+
+    assert!(status.is_client_error());
+    assert!(!server.path().join(test_file_name).exists());
+
+    Ok(())
+}
+
 /// Test setting the HTML accept attribute using -m and -M.
 #[rstest]
 #[case(server(&["-u"]), None)]

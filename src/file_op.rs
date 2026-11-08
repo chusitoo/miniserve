@@ -191,7 +191,15 @@ async fn save_file(
     // new chunks from the websocket connection. The while loop reads
     // the file from the HTTP connection and writes it to disk or until
     // the stream from the multipart request is aborted.
-    while let Some(Ok(bytes)) = field.next().await {
+    while let Some(chunk) = field.next().await {
+        // An aborted upload ends with an error, which must not leave a truncated file behind
+        let bytes = match chunk {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                save_upload_file_error = Some(RuntimeError::MultipartError(e.to_string()));
+                break;
+            }
+        };
         // If the hasher exists (if the user has also sent a chunksum with the request)
         // then we want to update the hasher with the new bytes uploaded.
         if let Some(hasher) = hasher.as_mut() {
