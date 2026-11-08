@@ -10,7 +10,8 @@ use std::path::{Component, Path};
 use url::Url;
 
 use crate::fixtures::{
-    DEEPLY_NESTED_FILE, DIRECTORIES, FILES, HIDDEN_DIRECTORIES, HIDDEN_FILES, reqwest_client,
+    DEEPLY_NESTED_FILE, DIRECTORIES, DIRECTORY_SYMLINK, FILE_SYMLINK, FILES, HIDDEN_DIRECTORIES,
+    HIDDEN_FILES, reqwest_client,
 };
 
 const NESTED_FILES_UNDER_SINGLE_ROOT: &[&str] = &["someDir/alpha", "someDir/some_sub_dir/bravo"];
@@ -294,5 +295,28 @@ fn cannot_rm_served_dir(
 
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(server.path().join(FILES[0]).exists());
+    Ok(())
+}
+
+/// Deleting a symlink removes the link itself, never its target.
+#[rstest]
+#[case(DIRECTORY_SYMLINK, DIRECTORIES[0])]
+#[case(FILE_SYMLINK, FILES[0])]
+fn rm_symlink_keeps_target(
+    #[with(&["-R"])] server: TestServer,
+    reqwest_client: Client,
+    #[case] link: &str,
+    #[case] target: &str,
+) -> Result<(), Error> {
+    let link_path = server.path().join(link.trim_end_matches('/'));
+    assert!(link_path.is_symlink());
+
+    reqwest_client
+        .post(server.url().join(&make_del_path(link))?)
+        .send()?
+        .error_for_status()?;
+
+    assert!(!link_path.is_symlink());
+    assert!(server.path().join(target).exists());
     Ok(())
 }

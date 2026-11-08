@@ -569,7 +569,8 @@ pub async fn rm_file(
     }
 
     // Disallow the target path to go outside of the served directory
-    let canonicalized_rm_path = match app_root_dir.join(&rm_path).canonicalize() {
+    let target_path = app_root_dir.join(&rm_path);
+    let canonicalized_rm_path = match target_path.canonicalize() {
         Ok(path) if !conf.no_symlinks => Ok(path),
         Ok(path) if path.starts_with(&app_root_dir) => Ok(path),
         _ => Err(RuntimeError::InvalidHttpRequestError(
@@ -585,7 +586,13 @@ pub async fn rm_file(
     }
 
     // Remove
-    let rm_res = if app_root_dir.starts_with(&canonicalized_rm_path) {
+    let rm_res = if target_path.is_symlink() {
+        // Remove the link itself, never the file or directory it points to
+        match fs::remove_file(&target_path).await {
+            Err(_) if cfg!(windows) => fs::remove_dir(&target_path).await,
+            res => res,
+        }
+    } else if app_root_dir.starts_with(&canonicalized_rm_path) {
         // Never delete the served directory or one of its ancestors
         return Err(RuntimeError::RmForbiddenError);
     } else if canonicalized_rm_path.is_dir() {
