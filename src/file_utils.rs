@@ -43,8 +43,8 @@ pub fn contains_symlink(path: impl AsRef<Path>) -> io::Result<bool> {
         .as_ref()
         .ancestors()
         // On Windows, `\\?\` won't exist even though it's the root, but there's no need to check it
-        // So we filter it out
-        .filter(|p| p.exists())
+        // So we filter it out. Dangling symlinks don't "exist" but must still be detected.
+        .filter(|p| p.exists() || p.is_symlink())
         .map(|p| p.symlink_metadata())
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()

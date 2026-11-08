@@ -430,13 +430,14 @@ async fn handle_multipart(
 
     let filename_path = sanitize_path(Path::new(&filename), allow_hidden_paths)
         .ok_or_else(|| RuntimeError::InvalidPathError("Invalid file name to upload".to_string()))?;
+    let file_path = path.join(filename_path);
 
-    // Ensure there are no illegal symlinks in the file upload path
+    // Ensure there are no illegal symlinks in the file upload path, including nested file names
     if !allow_symlinks {
-        match contains_symlink(&path) {
+        match contains_symlink(&file_path) {
             Err(err) => Err(RuntimeError::InsufficientPermissionsError(err.to_string()))?,
             Ok(true) => Err(RuntimeError::InsufficientPermissionsError(format!(
-                "{path:?} traverses through a symlink"
+                "{file_path:?} traverses through a symlink"
             )))?,
             Ok(false) => (),
         }
@@ -444,7 +445,7 @@ async fn handle_multipart(
 
     save_file(
         &mut field,
-        path.join(filename_path),
+        file_path,
         on_duplicate_files,
         file_hash,
         upload_directory,

@@ -538,6 +538,38 @@ fn upload_to_symlink_directory(
     Ok(())
 }
 
+/// Test that nested file names can't be used to upload through a symlink with --no-symlinks.
+#[rstest]
+fn upload_through_nested_symlink_is_prevented(
+    #[with(&["-u", "--no-symlinks"])] server: TestServer,
+    reqwest_client: Client,
+    tmpdir: TempDir,
+) -> Result<(), Error> {
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink as symlink_dir;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_dir;
+
+    symlink_dir(tmpdir.path(), server.path().join("someDir/link")).unwrap();
+    let outside_path = tmpdir.path().join("bar");
+
+    let part = multipart::Part::text("this should not be uploaded")
+        .file_name("link/bar")
+        .mime_str("text/plain")?;
+    let form = multipart::Form::new().part("file_to_upload", part);
+
+    let status = reqwest_client
+        .post(server.url().join("/upload?path=/someDir")?)
+        .multipart(form)
+        .send()?
+        .status();
+
+    assert!(status.is_client_error());
+    assert!(!outside_path.exists());
+
+    Ok(())
+}
+
 /// Multipart fields without a name must be rejected instead of crashing the server.
 #[rstest]
 fn upload_without_field_name_is_rejected(
