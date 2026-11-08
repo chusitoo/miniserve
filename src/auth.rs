@@ -8,6 +8,7 @@ use actix_web::{
 };
 use actix_web_httpauth::extractors::basic::BasicAuth;
 use sha2::{Digest, Sha256, Sha512};
+use subtle::ConstantTimeEq;
 
 use crate::errors::RuntimeError;
 
@@ -43,18 +44,28 @@ pub struct RequiredAuth {
 }
 
 /// Return `true` if `basic_auth` is matches any of `required_auth`
+///
+/// Every entry is checked so that timing doesn't reveal which usernames exist.
 pub fn match_auth(basic_auth: &BasicAuthParams, required_auth: &[RequiredAuth]) -> bool {
     required_auth
         .iter()
-        .any(|RequiredAuth { username, password }| {
-            basic_auth.username == *username && compare_password(&basic_auth.password, password)
+        .fold(false, |matched, RequiredAuth { username, password }| {
+            let username_matches: bool = basic_auth
+                .username
+                .as_bytes()
+                .ct_eq(username.as_bytes())
+                .into();
+            matched | (username_matches & compare_password(&basic_auth.password, password))
         })
 }
 
 /// Return `true` if `basic_auth_pwd` meets `required_auth_pwd`'s requirement
 pub fn compare_password(basic_auth_pwd: &str, required_auth_pwd: &RequiredAuthPassword) -> bool {
     match &required_auth_pwd {
-        RequiredAuthPassword::Plain(required_password) => *basic_auth_pwd == *required_password,
+        // Compare digests so that timing reveals neither the content nor the length
+        RequiredAuthPassword::Plain(required_password) => {
+            compare_hash::<Sha512>(basic_auth_pwd, &get_hash::<Sha512>(required_password))
+        }
         RequiredAuthPassword::Sha256(password_hash) => {
             compare_hash::<Sha256>(basic_auth_pwd, password_hash)
         }
@@ -66,7 +77,7 @@ pub fn compare_password(basic_auth_pwd: &str, required_auth_pwd: &RequiredAuthPa
 
 /// Return `true` if hashing of `password` by `T` algorithm equals to `hash`
 pub fn compare_hash<T: Digest>(password: &str, hash: &[u8]) -> bool {
-    get_hash::<T>(password) == hash
+    get_hash::<T>(password).ct_eq(hash).into()
 }
 
 /// Get hash of a `text`

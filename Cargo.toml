@@ -55,6 +55,7 @@ sha2 = "0.11"
 simplelog = "0.12"
 socket2 = "0.6"
 strum = { version = "0.28", features = ["derive"] }
+subtle = "2"
 tar = "0.4"
 tempfile = "3.27.0"
 thiserror = "2"

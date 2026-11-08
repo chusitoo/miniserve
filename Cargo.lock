@@ -2115,6 +2115,7 @@ dependencies = [
  "simplelog",
  "socket2",
  "strum",
+ "subtle",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
