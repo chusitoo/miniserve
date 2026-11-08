@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -57,10 +58,12 @@ impl ArchiveMethod {
     /// Recursively includes all files and subdirectories.
     ///
     /// If `skip_symlinks` is `true`, symlinks fill not be followed and will just be ignored.
+    /// If `show_hidden` is `false`, files and directories starting with a dot are excluded.
     pub fn create_archive<T, W>(
         self,
         dir: T,
         skip_symlinks: bool,
+        show_hidden: bool,
         out: W,
     ) -> Result<(), RuntimeError>
     where
@@ -69,21 +72,26 @@ impl ArchiveMethod {
     {
         let dir = dir.as_ref();
         match self {
-            Self::TarGz => tar_gz(dir, skip_symlinks, out),
-            Self::Tar => tar_dir(dir, skip_symlinks, out),
-            Self::Zip => zip_dir(dir, skip_symlinks, out),
+            Self::TarGz => tar_gz(dir, skip_symlinks, show_hidden, out),
+            Self::Tar => tar_dir(dir, skip_symlinks, show_hidden, out),
+            Self::Zip => zip_dir(dir, skip_symlinks, show_hidden, out),
         }
     }
 }
 
+/// Whether a directory entry should be left out of an archive because it's hidden.
+fn is_excluded_hidden(name: &OsStr, show_hidden: bool) -> bool {
+    !show_hidden && name.to_string_lossy().starts_with('.')
+}
+
 /// Write a gzipped tarball of `dir` in `out`.
-fn tar_gz<W>(dir: &Path, skip_symlinks: bool, out: W) -> Result<(), RuntimeError>
+fn tar_gz<W>(dir: &Path, skip_symlinks: bool, show_hidden: bool, out: W) -> Result<(), RuntimeError>
 where
     W: std::io::Write,
 {
     let mut out = Encoder::new(out).map_err(|e| RuntimeError::IoError("GZIP".to_string(), e))?;
 
-    tar_dir(dir, skip_symlinks, &mut out)?;
+    tar_dir(dir, skip_symlinks, show_hidden, &mut out)?;
 
     out.finish()
         .into_result()
@@ -115,7 +123,12 @@ where
 /// ├── f
 /// └── g
 /// ```
-fn tar_dir<W>(dir: &Path, skip_symlinks: bool, out: W) -> Result<(), RuntimeError>
+fn tar_dir<W>(
+    dir: &Path,
+    skip_symlinks: bool,
+    show_hidden: bool,
+    out: W,
+) -> Result<(), RuntimeError>
 where
     W: std::io::Write,
 {
@@ -129,7 +142,7 @@ where
         )
     })?;
 
-    tar(dir, directory.to_string(), skip_symlinks, out)
+    tar(dir, directory.to_string(), skip_symlinks, show_hidden, out)
         .map_err(|e| RuntimeError::ArchiveCreationError("tarball".to_string(), Box::new(e)))
 }
 
@@ -140,6 +153,7 @@ fn tar<W>(
     src_dir: &Path,
     inner_folder: String,
     skip_symlinks: bool,
+    show_hidden: bool,
     out: W,
 ) -> Result<(), RuntimeError>
 where
@@ -149,18 +163,37 @@ where
 
     tar_builder.follow_symlinks(!skip_symlinks);
 
-    // Recursively adds the content of src_dir into the archive stream
-    tar_builder
-        .append_dir_all(inner_folder, src_dir)
-        .map_err(|e| {
-            RuntimeError::IoError(
-                format!(
-                    "Failed to append the content of '{}' to the TAR archive",
-                    src_dir.to_str().unwrap_or("file")
-                ),
-                e,
-            )
-        })?;
+    let append_error = |e| {
+        RuntimeError::IoError(
+            format!(
+                "Failed to append the content of '{}' to the TAR archive",
+                src_dir.to_str().unwrap_or("file")
+            ),
+            e,
+        )
+    };
+
+    // Same traversal as `Builder::append_dir_all`, but leaving out hidden entries
+    let mut stack = vec![src_dir.to_path_buf()];
+    while let Some(src) = stack.pop() {
+        let is_dir = if skip_symlinks {
+            src.symlink_metadata().is_ok_and(|m| m.is_dir())
+        } else {
+            src.is_dir()
+        };
+        if is_dir {
+            for entry in std::fs::read_dir(&src).map_err(append_error)? {
+                let entry = entry.map_err(append_error)?;
+                if !is_excluded_hidden(&entry.file_name(), show_hidden) {
+                    stack.push(entry.path());
+                }
+            }
+        }
+        let relative_path = src.strip_prefix(src_dir).unwrap_or(&src);
+        tar_builder
+            .append_path_with_name(&src, Path::new(&inner_folder).join(relative_path))
+            .map_err(append_error)?;
+    }
 
     // Finish the archive
     tar_builder.into_inner().map_err(|e| {
@@ -197,6 +230,7 @@ fn create_zip_from_directory<W>(
     out: W,
     directory: &Path,
     skip_symlinks: bool,
+    show_hidden: bool,
 ) -> Result<(), RuntimeError>
 where
     W: std::io::Write + std::io::Seek,
@@ -235,7 +269,11 @@ where
                 })?
                 .path();
             // `std::fs::metadata` follows symlinks, so check for them beforehand
-            if skip_symlinks && entry_path.is_symlink() {
+            if (skip_symlinks && entry_path.is_symlink())
+                || entry_path
+                    .file_name()
+                    .is_some_and(|name| is_excluded_hidden(name, show_hidden))
+            {
                 continue;
             }
             let entry_metadata = std::fs::metadata(entry_path.clone()).map_err(|e| {
@@ -311,13 +349,18 @@ where
 /// Writes a zip of `dir` in `out`.
 ///
 /// The content of `src_dir` will be saved in the archive as the  folder named .
-fn zip_data<W>(src_dir: &Path, skip_symlinks: bool, mut out: W) -> Result<(), RuntimeError>
+fn zip_data<W>(
+    src_dir: &Path,
+    skip_symlinks: bool,
+    show_hidden: bool,
+    mut out: W,
+) -> Result<(), RuntimeError>
 where
     W: std::io::Write,
 {
     let mut data = Vec::new();
     let memory_file = Cursor::new(&mut data);
-    create_zip_from_directory(memory_file, src_dir, skip_symlinks).map_err(|e| {
+    create_zip_from_directory(memory_file, src_dir, skip_symlinks, show_hidden).map_err(|e| {
         RuntimeError::ArchiveCreationError(
             "Failed to create the ZIP archive".to_string(),
             Box::new(e),
@@ -330,7 +373,12 @@ where
     Ok(())
 }
 
-fn zip_dir<W>(dir: &Path, skip_symlinks: bool, out: W) -> Result<(), RuntimeError>
+fn zip_dir<W>(
+    dir: &Path,
+    skip_symlinks: bool,
+    show_hidden: bool,
+    out: W,
+) -> Result<(), RuntimeError>
 where
     W: std::io::Write,
 {
@@ -344,6 +392,6 @@ where
         )
     })?;
 
-    zip_data(dir, skip_symlinks, out)
+    zip_data(dir, skip_symlinks, show_hidden, out)
         .map_err(|e| RuntimeError::ArchiveCreationError("zip".to_string(), Box::new(e)))
 }

@@ -213,16 +213,19 @@ enum ExpectedLen {
 
 /// Broken symlinks (from [`fixtures::BROKEN_SYMLINK`]) yield different archive behaviors:
 /// - tar_gz: a file with only partial header fields. See "rfc1952 § 2.3.1. Member header and trailer".
-/// - tar: a tarball containing a subset of files.
+/// - tar: a tarball containing a subset of files, depending on the directory iteration order.
 /// - zip: an empty file.
+///
+/// `--hidden` is set so that hidden entries can be archived before the broken symlink is reached.
 #[rstest]
 #[case::tar_gz(ArchiveKind::TarGz, ExpectedLen::Exact(10))]
-#[case::tar(ArchiveKind::Tar, ExpectedLen::Min(512 + 512 + 2 * 512))]
+// Only the root directory header and the end-of-archive marker are guaranteed
+#[case::tar(ArchiveKind::Tar, ExpectedLen::Min(512 + 2 * 512))]
 #[case::zip(ArchiveKind::Zip, ExpectedLen::Exact(0))]
 fn archive_behave_differently_with_broken_symlinks(
     #[case] kind: ArchiveKind,
     #[case] expected: ExpectedLen,
-    #[with(&[ArchiveKind::TarGz.server_option(), ArchiveKind::Tar.server_option(), ArchiveKind::Zip.server_option()])]
+    #[with(&[ArchiveKind::TarGz.server_option(), ArchiveKind::Tar.server_option(), ArchiveKind::Zip.server_option(), "--hidden"])]
     server: TestServer,
     reqwest_client: Client,
 ) -> Result<(), Error> {
@@ -327,6 +330,31 @@ fn zip_archives_respect_no_symlinks(
     assert_eq!(
         names.iter().any(|name| name.ends_with("link")),
         symlinks_included
+    );
+
+    Ok(())
+}
+
+/// Archives leave out hidden entries unless --hidden is set.
+#[rstest]
+#[case::tar_gz(server(&["--enable-tar-gz"]), ArchiveKind::TarGz, false)]
+#[case::tar(server(&["--enable-tar"]), ArchiveKind::Tar, false)]
+#[case::zip(server(&["--enable-zip"]), ArchiveKind::Zip, false)]
+#[case::tar_with_hidden(server(&["--enable-tar", "--hidden"]), ArchiveKind::Tar, true)]
+#[case::zip_with_hidden(server(&["--enable-zip", "--hidden"]), ArchiveKind::Zip, true)]
+fn archives_respect_hidden_option(
+    #[case] server: TestServer,
+    #[case] kind: ArchiveKind,
+    #[case] hidden_included: bool,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    std::fs::write(server.path().join("someDir/.hidden"), "hidden")?;
+
+    let names = archive_entry_names(&reqwest_client, &server, "someDir/", kind)?;
+    assert!(names.iter().any(|name| name.ends_with("alpha")));
+    assert_eq!(
+        names.iter().any(|name| name.ends_with(".hidden")),
+        hidden_included
     );
 
     Ok(())

@@ -424,8 +424,9 @@ pub fn directory_listing(
         // Start the actual archive creation in a separate thread.
         let dir = dir.path.to_path_buf();
         let skip_symlinks = conf.no_symlinks;
+        let show_hidden = conf.show_hidden;
         std::thread::spawn(move || {
-            if let Err(err) = archive_method.create_archive(dir, skip_symlinks, pipe) {
+            if let Err(err) = archive_method.create_archive(dir, skip_symlinks, show_hidden, pipe) {
                 log::error!("Error during archive creation: {err:?}");
             }
         });
