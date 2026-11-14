@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
@@ -420,6 +422,7 @@ fn serve_index_instead_of_404_in_spa_mode(
 #[case(server(&["--pretty-urls", "--index", FILES[1]]), "/")]
 #[case(server(&["--pretty-urls", "--index", FILES[1]]), "test.html")]
 #[case(server(&["--pretty-urls", "--index", FILES[1]]), "test")]
+#[case(server(&["--pretty-urls", "--route-prefix", "foobar"]), "foobar/test")]
 fn serve_file_instead_of_404_in_pretty_urls_mode(
     #[case] server: TestServer,
     reqwest_client: Client,
@@ -436,6 +439,60 @@ fn serve_file_instead_of_404_in_pretty_urls_mode(
             .next()
             .is_some()
     );
+
+    Ok(())
+}
+
+#[rstest]
+fn pretty_urls_decode_percent_encoded_paths(
+    #[with(&["--pretty-urls"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    std::fs::write(server.path().join("with space.html"), "Spaced out")?;
+
+    let body = reqwest_client
+        .get(server.url().join("with%20space")?)
+        .send()?
+        .error_for_status()?;
+    assert_eq!(body.text()?, "Spaced out");
+
+    Ok(())
+}
+
+#[rstest]
+fn pretty_urls_prevent_path_traversal(
+    #[with(&["--pretty-urls"])] server: TestServer,
+) -> Result<(), Error> {
+    // A sibling of the served directory, with a name that isn't hidden
+    let outside = tempfile::Builder::new().prefix("outside").tempdir()?;
+    std::fs::write(outside.path().join("secret.html"), "outside secret")?;
+    let outside_name = outside.path().file_name().unwrap().to_string_lossy();
+
+    // reqwest normalizes dot segments, so send the request by hand
+    let mut stream = TcpStream::connect(("localhost", server.port()))?;
+    write!(
+        stream,
+        "GET /../{outside_name}/secret HTTP/1.0\r\nHost: localhost\r\n\r\n"
+    )?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+
+    assert!(response.starts_with("HTTP/1.0 404"), "{response}");
+    assert!(!response.contains("outside secret"));
+
+    Ok(())
+}
+
+#[rstest]
+fn pretty_urls_respect_no_symlinks(
+    #[with(&["--pretty-urls", "--no-symlinks"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let status = reqwest_client
+        .get(server.url().join(&format!("{DIRECTORY_SYMLINK}test"))?)
+        .send()?
+        .status();
+    assert_eq!(status, StatusCode::NOT_FOUND);
 
     Ok(())
 }

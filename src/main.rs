@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::thread;
 use std::time::Duration;
 
-use actix_files::NamedFile;
+use actix_files::{NamedFile, PathBufWrap};
 use actix_web::middleware::from_fn;
 use actix_web::{
     App, HttpRequest, HttpResponse, Responder,
@@ -390,14 +390,28 @@ fn configure_app(app: &mut web::ServiceConfig, conf: &MiniserveConfig) {
                 let conf = req
                     .app_data::<web::Data<MiniserveConfig>>()
                     .expect("Could not get miniserve config");
-                let mut path_base = req.path()[1..].to_string();
-                if path_base.ends_with('/') {
-                    path_base.pop();
+                let not_found = || RuntimeError::RouteNotFoundError(req.path().to_string());
+
+                // Parse the path like actix-files does so that it can't leave the served directory
+                let path =
+                    PathBufWrap::parse_path(req.match_info().unprocessed(), conf.show_hidden)?;
+                let mut path_base = path.as_ref().to_string_lossy().into_owned();
+                if path_base.is_empty() {
+                    return Err(not_found().into());
                 }
                 if !path_base.ends_with("html") {
-                    path_base = format!("{path_base}.html");
+                    path_base.push_str(".html");
                 }
-                let file = NamedFile::open(conf.path.join(path_base))?;
+                if conf.no_symlinks
+                    && conf
+                        .path
+                        .canonicalize()
+                        .and_then(|root| file_utils::contains_symlink(root.join(&path_base)))
+                        .unwrap_or(true)
+                {
+                    return Err(not_found().into());
+                }
+                let file = NamedFile::open(conf.path.join(path_base)).map_err(|_| not_found())?;
                 let res = file.into_response(&req);
                 Ok(ServiceResponse::new(req, res))
             }));
