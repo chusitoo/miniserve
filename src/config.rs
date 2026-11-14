@@ -16,6 +16,7 @@ use crate::file_utils::get_default_filemode;
 use crate::{
     args::{CliArgs, DuplicateFile, LogColor, MediaType, parse_auth},
     auth::RequiredAuth,
+    consts::API_PATH,
     file_utils::sanitize_path,
     listing::{SortingMethod, SortingOrder},
     renderer::ThemeSlug,
@@ -239,21 +240,21 @@ impl MiniserveConfig {
         // If --random-route is enabled, in order to not leak the random generated route, we must not use it
         // as static files prefix.
         // Otherwise, we should apply route_prefix to static files.
-        let (healthcheck_route, api_route, favicon_route, css_route) = if args.random_route {
+        let (healthcheck_route, favicon_route, css_route) = if args.random_route {
             (
                 "/__miniserve_internal/healthcheck".into(),
-                "/__miniserve_internal/api".into(),
                 "/__miniserve_internal/favicon.svg".into(),
                 "/__miniserve_internal/style.css".into(),
             )
         } else {
             (
                 format!("{}/{}", route_prefix, "__miniserve_internal/healthcheck"),
-                format!("{}/{}", route_prefix, "__miniserve_internal/api"),
                 format!("{}/{}", route_prefix, "__miniserve_internal/favicon.svg"),
                 format!("{}/{}", route_prefix, "__miniserve_internal/style.css"),
             )
         };
+        // The API is only served behind the route prefix, where authentication applies
+        let api_route = format!("{route_prefix}{API_PATH}");
 
         let default_color_scheme = args.color_scheme;
         let default_color_scheme_dark = args.color_scheme_dark;

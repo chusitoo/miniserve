@@ -73,7 +73,7 @@ pub fn page(
     html! {
         (DOCTYPE)
         html {
-            (page_header(&title_path, conf.file_upload, conf.web_upload_concurrency, &conf.api_route, &conf.favicon_route, &conf.css_route))
+            (page_header(&title_path, conf.file_upload, conf.web_upload_concurrency, Some(&conf.api_route), &conf.favicon_route, &conf.css_route))
 
             body #drop-container
             {
@@ -740,11 +740,13 @@ fn chevron_down() -> Markup {
 }
 
 /// Partial: page header
+///
+/// `api_route` is left out of error pages, which must not reveal a random route prefix.
 fn page_header(
     title: &str,
     file_upload: bool,
     web_file_concurrency: usize,
-    api_route: &str,
+    api_route: Option<&str>,
     favicon_route: &str,
     css_route: &str,
 ) -> Markup {
@@ -801,47 +803,49 @@ fn page_header(
                 "#))
             }
 
-            script {
-                (format!("const API_ROUTE = '{api_route}';"))
-                (PreEscaped(r#"
-                    let dirSizeCache = {};
+            @if let Some(api_route) = api_route {
+                script {
+                    (format!("const API_ROUTE = '{api_route}';"))
+                    (PreEscaped(r#"
+                        let dirSizeCache = {};
 
-                    // Query the directory size from the miniserve API
-                    function fetchDirSize(dir) {
-                        return fetch(API_ROUTE, {
-                            headers: {
-                                'Accept': 'application/json',
-                                'Content-Type': 'application/json'
-                            },
-                            method: 'POST',
-                            body: JSON.stringify({
-                                DirSize: dir
-                            })
-                        }).then(resp => resp.ok ? resp.text() : "~")
-                    }
-
-                    function updateSizeCells() {
-                        const directoryCells = document.querySelectorAll('tr.entry-type-directory .size-cell');
-
-                        directoryCells.forEach(cell => {
-                            // Get the dir from the sibling anchor tag.
-                            const href = cell.parentNode.querySelector('a').href;
-                            const target = new URL(href).pathname;
-
-                            // First check our local cache
-                            if (target in dirSizeCache) {
-                                cell.dataset.size = dirSizeCache[target];
-                            } else {
-                                fetchDirSize(target).then(dir_size => {
-                                    cell.dataset.size = dir_size;
-                                    dirSizeCache[target] = dir_size;
+                        // Query the directory size from the miniserve API
+                        function fetchDirSize(dir) {
+                            return fetch(API_ROUTE, {
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'Content-Type': 'application/json'
+                                },
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    DirSize: dir
                                 })
-                                .catch(error => console.error("Error fetching dir size:", error));
-                            }
-                        })
-                    }
-                    setInterval(updateSizeCells, 1000);
-                "#))
+                            }).then(resp => resp.ok ? resp.text() : "~")
+                        }
+
+                        function updateSizeCells() {
+                            const directoryCells = document.querySelectorAll('tr.entry-type-directory .size-cell');
+
+                            directoryCells.forEach(cell => {
+                                // Get the dir from the sibling anchor tag.
+                                const href = cell.parentNode.querySelector('a').href;
+                                const target = new URL(href).pathname;
+
+                                // First check our local cache
+                                if (target in dirSizeCache) {
+                                    cell.dataset.size = dirSizeCache[target];
+                                } else {
+                                    fetchDirSize(target).then(dir_size => {
+                                        cell.dataset.size = dir_size;
+                                        dirSizeCache[target] = dir_size;
+                                    })
+                                    .catch(error => console.error("Error fetching dir size:", error));
+                                }
+                            })
+                        }
+                        setInterval(updateSizeCells, 1000);
+                    "#))
+                }
             }
 
             @if file_upload {
@@ -1243,7 +1247,7 @@ pub fn render_error(
     html! {
         (DOCTYPE)
         html {
-            (page_header(&error_code.to_string(), false, conf.web_upload_concurrency, &conf.api_route, &conf.favicon_route, &conf.css_route))
+            (page_header(&error_code.to_string(), false, conf.web_upload_concurrency, None, &conf.favicon_route, &conf.css_route))
 
             body
             {

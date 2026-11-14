@@ -64,3 +64,46 @@ fn api_dir_size_prevent_path_transversal_attacks(
 
     Ok(())
 }
+
+#[rstest]
+fn api_requires_auth(
+    #[with(&["--directory-size", "--auth", "testuser:testpassword"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let mut command = HashMap::new();
+    command.insert("DirSize", DIRECTORIES[0]);
+    let url = server.url().join("__miniserve_internal/api")?;
+
+    let resp = reqwest_client.post(url.clone()).json(&command).send()?;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    let resp = reqwest_client
+        .post(url)
+        .basic_auth("testuser", Some("testpassword"))
+        .json(&command)
+        .send()?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    Ok(())
+}
+
+/// The API route contains the random route, so error pages must not include it
+#[rstest]
+fn api_route_not_leaked_by_random_route_error_page(
+    #[with(&["--directory-size", "--random-route"])] server: TestServer,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let resp = reqwest_client.get(server.url()).send()?;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    assert!(!resp.text()?.contains("__miniserve_internal/api"));
+
+    let mut command = HashMap::new();
+    command.insert("DirSize", DIRECTORIES[0]);
+    let resp = reqwest_client
+        .post(server.url().join("__miniserve_internal/api")?)
+        .json(&command)
+        .send()?;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    Ok(())
+}

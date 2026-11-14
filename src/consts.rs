@@ -5,3 +5,6 @@ pub const QR_EC_LEVEL: ECL = ECL::L;
 
 /// The margin size for the SVG QR code on the webpage.
 pub const SVG_QR_MARGIN: usize = 1;
+
+/// Route of the internal API, relative to the route prefix.
+pub const API_PATH: &str = "/__miniserve_internal/api";

@@ -255,7 +255,6 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
                 middleware::Compress::default(),
             ))
             .route(&inside_config.healthcheck_route, web::get().to(healthcheck))
-            .route(&inside_config.api_route, web::post().to(api))
             .route(&inside_config.favicon_route, web::get().to(favicon))
             .route(&inside_config.css_route, web::get().to(css))
             .service(
@@ -266,6 +265,7 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
                             auth::handle_auth,
                         )),
                     ))
+                    .route(consts::API_PATH, web::post().to(api))
                     .configure(|c| configure_app(c, &inside_config)),
             )
             .default_service(web::get().to(error_404))
