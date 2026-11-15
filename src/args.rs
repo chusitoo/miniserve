@@ -437,6 +437,13 @@ pub struct CliArgs {
     #[arg(long = "tls-client-ca", requires = "tls_cert", value_hint = ValueHint::FilePath, env = "MINISERVE_TLS_CLIENT_CA")]
     pub tls_client_ca: Option<PathBuf>,
 
+    /// Reject TLS client certificates revoked by a CRL in this PEM file
+    ///
+    /// Certificates are also rejected if the file has no CRL from their issuer.
+    #[cfg(feature = "tls")]
+    #[arg(long = "tls-client-crl", requires = "tls_client_ca", value_hint = ValueHint::FilePath, env = "MINISERVE_TLS_CLIENT_CRL")]
+    pub tls_client_crl: Option<PathBuf>,
+
     /// Enable README.md rendering in directories
     #[arg(long, env = "MINISERVE_README")]
     pub readme: bool,

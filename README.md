@@ -94,6 +94,8 @@ Only TLS 1.3 is supported.
     curl --cert client.cert --key client.key https://localhost:8080
 
 Clients without a certificate issued by a CA in `client-ca.pem` can't connect.
+To turn away revoked certificates as well, add the CA's certificate revocation list with `--tls-client-crl client-ca.crl`.
+miniserve reads it on startup, so restart it after updating the list.
 
 ### Upload a file using `curl`:
 
@@ -492,6 +494,13 @@ Options:
           Require TLS client certificates issued by a CA in this PEM file (mutual TLS)
 
           [env: MINISERVE_TLS_CLIENT_CA=]
+
+      --tls-client-crl <TLS_CLIENT_CRL>
+          Reject TLS client certificates revoked by a CRL in this PEM file
+
+          Certificates are also rejected if the file has no CRL from their issuer.
+
+          [env: MINISERVE_TLS_CLIENT_CRL=]
 
       --readme
           Enable README.md rendering in directories

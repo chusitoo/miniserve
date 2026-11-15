@@ -16,3 +16,11 @@ client_cert client.pem client_ca.pem client_ca_key.pem
 openssl req -subj '/CN=Other CA' -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout other_ca_key.tmp -out other_ca.tmp -days 3650
 client_cert client_untrusted.pem other_ca.tmp other_ca_key.tmp
 rm other_ca.tmp other_ca_key.tmp
+
+# Revoked in the client CA's CRL
+client_cert client_revoked.pem client_ca.pem client_ca_key.pem
+mkdir ca.tmp && touch ca.tmp/index.txt && echo 01 > ca.tmp/crlnumber
+printf '[ca]\ndefault_ca = client_ca\n[client_ca]\ndatabase = ca.tmp/index.txt\ncrlnumber = ca.tmp/crlnumber\ndefault_md = sha256\n' > ca.tmp/ca.cnf
+openssl ca -config ca.tmp/ca.cnf -cert client_ca.pem -keyfile client_ca_key.pem -revoke client_revoked.pem
+openssl ca -config ca.tmp/ca.cnf -cert client_ca.pem -keyfile client_ca_key.pem -gencrl -crldays 3650 -out client_crl.pem
+rm -r ca.tmp

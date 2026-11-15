@@ -298,6 +298,22 @@ impl MiniserveConfig {
                 let private_key = pemfile::private_key(key_file)
                     .context("Reading private key file")?
                     .expect("No private key found");
+                let client_crls = match args.tls_client_crl {
+                    Some(crl_path) => {
+                        let crl_file = &mut BufReader::new(
+                            File::open(&crl_path)
+                                .context(format!("Couldn't access TLS client CRL {crl_path:?}"))?,
+                        );
+                        let crls = pemfile::crls(crl_file)
+                            .collect::<Result<Vec<_>, _>>()
+                            .context(format!("Invalid TLS client CRL {crl_path:?}"))?;
+                        if crls.is_empty() {
+                            anyhow::bail!("No CRL found in TLS client CRL {crl_path:?}");
+                        }
+                        crls
+                    }
+                    None => vec![],
+                };
                 let client_cert_verifier = match args.tls_client_ca {
                     Some(ca_path) => {
                         let ca_file = &mut BufReader::new(
@@ -314,7 +330,10 @@ impl MiniserveConfig {
                         if roots.is_empty() {
                             anyhow::bail!("No certificate found in TLS client CA {ca_path:?}");
                         }
-                        WebPkiClientVerifier::builder(roots.into()).build()?
+                        WebPkiClientVerifier::builder(roots.into())
+                            .with_crls(client_crls)
+                            .build()
+                            .context("Invalid TLS client CRL")?
                     }
                     None => WebPkiClientVerifier::no_client_auth(),
                 };

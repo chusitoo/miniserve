@@ -61,11 +61,30 @@ const CLIENT_CA_ARGS: &[&str] = &[
     "tests/data/client_ca.pem",
 ];
 
-/// Only clients with a certificate issued by the CA from --tls-client-ca are let in.
+/// Arguments to also check client certificates against the test client CA's CRL
+const CLIENT_CRL_ARGS: &[&str] = &["--tls-client-crl", "tests/data/client_crl.pem"];
+
+/// Only clients with a certificate issued by the CA from --tls-client-ca are let in, unless it
+/// has been revoked in the CRL from --tls-client-crl.
 #[rstest]
 #[case::trusted_cert(server(CLIENT_CA_ARGS), Some("tests/data/client.pem"), true)]
 #[case::untrusted_cert(server(CLIENT_CA_ARGS), Some("tests/data/client_untrusted.pem"), false)]
 #[case::no_cert(server(CLIENT_CA_ARGS), None, false)]
+#[case::revoked_cert_without_crl(
+    server(CLIENT_CA_ARGS),
+    Some("tests/data/client_revoked.pem"),
+    true
+)]
+#[case::trusted_cert_with_crl(
+    server([CLIENT_CA_ARGS, CLIENT_CRL_ARGS].concat()),
+    Some("tests/data/client.pem"),
+    true
+)]
+#[case::revoked_cert_with_crl(
+    server([CLIENT_CA_ARGS, CLIENT_CRL_ARGS].concat()),
+    Some("tests/data/client_revoked.pem"),
+    false
+)]
 fn tls_client_auth(
     #[case] server: TestServer,
     #[case] identity: Option<&str>,
@@ -82,12 +101,20 @@ fn tls_client_auth(
     Ok(())
 }
 
-/// Unusable client CA files are reported.
+/// Unusable client CA and CRL files are reported.
 #[rstest]
 #[case::missing(&["--tls-client-ca", "wrong"], "Error: Couldn't access TLS client CA \"wrong\"")]
 #[case::without_certificate(
     &["--tls-client-ca", "tests/data/key_ec.pem"],
     "Error: No certificate found in TLS client CA \"tests/data/key_ec.pem\""
+)]
+#[case::missing_crl(
+    &["--tls-client-ca", "tests/data/client_ca.pem", "--tls-client-crl", "wrong"],
+    "Error: Couldn't access TLS client CRL \"wrong\""
+)]
+#[case::without_crl(
+    &["--tls-client-ca", "tests/data/client_ca.pem", "--tls-client-crl", "tests/data/client_ca.pem"],
+    "Error: No CRL found in TLS client CRL \"tests/data/client_ca.pem\""
 )]
 fn unusable_tls_client_auth_file(#[case] args: &[&str], #[case] error: &str) -> Result<(), Error> {
     Command::new(cargo::cargo_bin!("miniserve"))
