@@ -14,7 +14,7 @@ use rustls_pemfile as pemfile;
 #[cfg(unix)]
 use crate::file_utils::get_default_filemode;
 use crate::{
-    args::{CliArgs, DuplicateFile, LogColor, MediaType, parse_auth},
+    args::{CliArgs, DuplicateFile, Interface, LogColor, MediaType, parse_auth},
     auth::RequiredAuth,
     consts::API_PATH,
     file_utils::sanitize_path,
@@ -44,6 +44,9 @@ pub struct MiniserveConfig {
 
     /// IP address(es) on which miniserve will be available
     pub interfaces: Vec<IpAddr>,
+
+    /// Unix socket(s) on which miniserve will be available
+    pub unix_sockets: Vec<PathBuf>,
 
     /// Number of server workers
     pub workers: usize,
@@ -209,13 +212,24 @@ pub struct MiniserveConfig {
 impl MiniserveConfig {
     /// Parses the command line arguments
     pub fn try_from_args(args: CliArgs) -> Result<Self> {
-        let interfaces = if !args.interfaces.is_empty() {
-            args.interfaces
+        let (interfaces, unix_sockets) = if args.interfaces.is_empty() {
+            (
+                vec![
+                    IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)),
+                    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                ],
+                vec![],
+            )
         } else {
-            vec![
-                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)),
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            ]
+            let mut interfaces = vec![];
+            let mut unix_sockets = vec![];
+            for interface in args.interfaces {
+                match interface {
+                    Interface::Address(addr) => interfaces.push(addr),
+                    Interface::UnixSocket(path) => unix_sockets.push(path),
+                }
+            }
+            (interfaces, unix_sockets)
         };
 
         let route_prefix = match (args.route_prefix, args.random_route) {
@@ -334,6 +348,7 @@ impl MiniserveConfig {
             temp_upload_directory: args.temp_upload_directory,
             port,
             interfaces,
+            unix_sockets,
             workers: args.workers,
             auth,
             path_explicitly_chosen,

@@ -47,6 +47,13 @@ pub enum LogColor {
     Never,
 }
 
+/// Where to listen for connections
+#[derive(Debug, Clone)]
+pub enum Interface {
+    Address(IpAddr),
+    UnixSocket(PathBuf),
+}
+
 #[derive(Parser)]
 #[command(name = "miniserve", author, about, version)]
 pub struct CliArgs {
@@ -110,6 +117,9 @@ pub struct CliArgs {
     pub port: u16,
 
     /// Interface to listen on
+    ///
+    /// This takes an IP address, or the path of a Unix socket if it starts with '/' or '.', for
+    /// example ./miniserve.sock. Unix sockets serve plain HTTP, even with TLS enabled.
     #[arg(
         short = 'i',
         long = "interfaces",
@@ -117,7 +127,7 @@ pub struct CliArgs {
         num_args(1),
         env = "MINISERVE_INTERFACE"
     )]
-    pub interfaces: Vec<IpAddr>,
+    pub interfaces: Vec<Interface>,
 
     /// Number of server workers
     #[arg(long = "workers", default_value = "4", env = "MINISERVE_WORKERS")]
@@ -465,9 +475,17 @@ pub struct CliArgs {
     pub log_color: LogColor,
 }
 
-/// Checks whether an interface is valid, i.e. it can be parsed into an IP address
-fn parse_interface(src: &str) -> Result<IpAddr, std::net::AddrParseError> {
-    src.parse::<IpAddr>()
+/// Checks whether an interface is valid, i.e. it's an IP address or a Unix socket path
+fn parse_interface(src: &str) -> Result<Interface, String> {
+    if !src.starts_with(['/', '.']) {
+        src.parse()
+            .map(Interface::Address)
+            .map_err(|e: std::net::AddrParseError| e.to_string())
+    } else if cfg!(unix) {
+        Ok(Interface::UnixSocket(PathBuf::from(src)))
+    } else {
+        Err("Unix sockets are not supported on this platform".to_string())
+    }
 }
 
 /// Validate that a path passed in is a directory and it exists.

@@ -102,3 +102,110 @@ fn validate_printed_urls(
 
     Ok(())
 }
+
+#[cfg(unix)]
+mod unix_socket {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+    use std::thread::sleep;
+    use std::time::{Duration, Instant};
+
+    use assert_cmd::{cargo, prelude::*};
+    use assert_fs::fixture::TempDir;
+    use rstest::rstest;
+
+    use crate::fixtures::{Error, FILES, port, tmpdir};
+
+    fn get(socket: &Path, path: &str) -> std::io::Result<String> {
+        let mut stream = UnixStream::connect(socket)?;
+        write!(stream, "GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response)?;
+        Ok(response)
+    }
+
+    fn wait_for_socket(socket: &Path) {
+        let start_wait = Instant::now();
+        while UnixStream::connect(socket).is_err() {
+            assert!(
+                start_wait.elapsed() < Duration::from_secs(5),
+                "timeout waiting for {socket:?}"
+            );
+            sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[rstest]
+    #[case::new_socket(false)]
+    #[case::stale_socket(true)]
+    fn serves_only_on_unix_socket(
+        tmpdir: TempDir,
+        port: u16,
+        #[case] stale_socket: bool,
+    ) -> Result<(), Error> {
+        let socket_dir = TempDir::new()?;
+        let socket = socket_dir.path().join("miniserve.sock");
+        if stale_socket {
+            // Dropping the listener leaves its socket file behind
+            drop(UnixListener::bind(&socket)?);
+        }
+
+        let mut child = Command::new(cargo::cargo_bin!("miniserve"))
+            .arg(tmpdir.path())
+            .arg("-p")
+            .arg(port.to_string())
+            .arg("-i")
+            .arg(&socket)
+            .stdout(Stdio::null())
+            .spawn()?;
+        wait_for_socket(&socket);
+        let response = get(&socket, &format!("/{}", FILES[0]));
+        let tcp = TcpStream::connect(("localhost", port));
+        child.kill()?;
+        child.wait()?;
+
+        let response = response?;
+        assert!(response.starts_with("HTTP/1.0 200"), "{response}");
+        assert!(response.ends_with("Test Hello Yes"));
+        assert!(tcp.is_err());
+
+        Ok(())
+    }
+
+    #[rstest]
+    fn keeps_existing_file_at_socket_path(tmpdir: TempDir) -> Result<(), Error> {
+        let socket = tmpdir.path().join(FILES[0]);
+
+        Command::new(cargo::cargo_bin!("miniserve"))
+            .arg(tmpdir.path())
+            .arg("-i")
+            .arg(&socket)
+            .assert()
+            .stderr(predicates::str::contains("File exists and is not a socket"))
+            .failure();
+        assert_eq!(std::fs::read_to_string(&socket)?, "Test Hello Yes");
+
+        Ok(())
+    }
+
+    #[rstest]
+    fn refuses_unix_socket_in_use(tmpdir: TempDir) -> Result<(), Error> {
+        let socket = tmpdir.path().join("miniserve.sock");
+        let _listener = UnixListener::bind(&socket)?;
+
+        Command::new(cargo::cargo_bin!("miniserve"))
+            .arg(tmpdir.path())
+            .arg("-i")
+            .arg(&socket)
+            .assert()
+            .stderr(predicates::str::contains(
+                "Another process is listening on this socket",
+            ))
+            .failure();
+
+        Ok(())
+    }
+}

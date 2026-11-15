@@ -61,6 +61,14 @@ Sometimes this is just a more practical and quick way than doing things properly
 
     miniserve -i 192.168.0.1 -i 10.13.37.10 -i ::1 /tmp/myshare
 
+### Listen on a Unix socket, e.g. behind a reverse proxy:
+
+    miniserve -i /run/miniserve/miniserve.sock /tmp/myshare
+    # Check it in another terminal
+    curl --unix-socket /run/miniserve/miniserve.sock http://localhost/
+
+The socket's permissions follow the umask, so make sure that the proxy is allowed to connect to it.
+
 ### Insert custom headers
 
     miniserve --header "Cache-Control:no-cache" --header "X-Custom-Header:custom-value" -p 8080 /tmp/myshare
@@ -221,6 +229,8 @@ Options:
 
   -i, --interfaces <INTERFACES>
           Interface to listen on
+
+          This takes an IP address, or the path of a Unix socket if it starts with '/' or '.', for example ./miniserve.sock. Unix sockets serve plain HTTP, even with TLS enabled.
 
           [env: MINISERVE_INTERFACE=]
 
@@ -622,6 +632,7 @@ It will also do that if explicitly provided with `-i 0.0.0.0` or `-i ::`.
 In all of the aforementioned cases, it will bind on both IPv4 and IPv6.
 If provided with an explicit non-default interface, it will ONLY bind to that interface.
 You can provide `-i` multiple times to bind to multiple interfaces at the same time.
+Unix sockets count as interfaces too, so `-i /path/to/miniserve.sock` alone doesn't bind to any network interface.
 
 ## Why use this over alternatives?
 

@@ -230,7 +230,14 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
 
     let display_sockets = socket_addresses
         .iter()
-        .map(|sock| sock.to_string().green().bold().to_string())
+        .map(ToString::to_string)
+        .chain(
+            miniserve_config
+                .unix_sockets
+                .iter()
+                .map(|path| path.display().to_string()),
+        )
+        .map(|sock| sock.green().bold().to_string())
         .collect::<Vec<_>>();
 
     let stylesheet = web::Data::new(
@@ -289,6 +296,18 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
         srv.map_err(|e| StartupError::IoError(format!("Failed to bind server to {addr}"), e))
     })?;
 
+    #[cfg(unix)]
+    let srv = miniserve_config
+        .unix_sockets
+        .iter()
+        .try_fold(srv, |srv, path| {
+            create_unix_listener(path)
+                .and_then(|listener| srv.listen_uds(listener))
+                .map_err(|e| {
+                    StartupError::IoError(format!("Failed to bind server to {}", path.display()), e)
+                })
+        })?;
+
     let srv = srv
         .shutdown_timeout(0)
         .workers(miniserve_config.workers)
@@ -297,14 +316,16 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
     if !miniserve_config.quiet {
         println!("Bound to {}", display_sockets.join(", "));
         println!("Serving path {}", path_string.yellow().bold());
-        println!(
-            "Available at (non-exhaustive list):\n    {}\n",
-            display_urls
-                .iter()
-                .map(|url| url.green().bold().to_string())
-                .collect::<Vec<_>>()
-                .join("\n    "),
-        );
+        if !display_urls.is_empty() {
+            println!(
+                "Available at (non-exhaustive list):\n    {}\n",
+                display_urls
+                    .iter()
+                    .map(|url| url.green().bold().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n    "),
+            );
+        }
     }
 
     // print QR code to terminal
@@ -329,8 +350,16 @@ async fn run(miniserve_config: MiniserveConfig) -> Result<(), StartupError> {
         println!("Quit by pressing CTRL-C");
     }
 
-    srv.await
-        .map_err(|e| StartupError::IoError("".to_owned(), e))
+    let result = srv
+        .await
+        .map_err(|e| StartupError::IoError("".to_owned(), e));
+
+    #[cfg(unix)]
+    for path in &miniserve_config.unix_sockets {
+        let _ = std::fs::remove_file(path);
+    }
+
+    result
 }
 
 /// Allows us to set low-level socket options
@@ -348,6 +377,30 @@ fn create_tcp_listener(addr: SocketAddr) -> io::Result<TcpListener> {
     socket.bind(&addr.into())?;
     socket.listen(1024 /* Default backlog */)?;
     Ok(TcpListener::from(socket))
+}
+
+/// Binds a Unix socket, replacing a stale socket file left behind by a previous run
+#[cfg(unix)]
+fn create_unix_listener(path: &std::path::Path) -> io::Result<std::os::unix::net::UnixListener> {
+    use std::os::unix::fs::FileTypeExt;
+    use std::os::unix::net::{UnixListener, UnixStream};
+
+    if let Ok(metadata) = path.symlink_metadata() {
+        if !metadata.file_type().is_socket() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "File exists and is not a socket",
+            ));
+        }
+        if UnixStream::connect(path).is_ok() {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "Another process is listening on this socket",
+            ));
+        }
+        std::fs::remove_file(path)?;
+    }
+    UnixListener::bind(path)
 }
 
 fn configure_header(conf: &MiniserveConfig) -> middleware::DefaultHeaders {
