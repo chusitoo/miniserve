@@ -85,6 +85,7 @@ If a header is already set or previously inserted, it will not be overwritten.
 
 If the parameter value has spaces, be sure to wrap it in quotes.
 (To achieve an A+ rating at https://www.ssllabs.com/ssltest/, enabling both fullchain TLS and HSTS is necessary.)
+Only TLS 1.3 is supported.
 
 ### Upload a file using `curl`:
 

@@ -9,6 +9,8 @@ use actix_web::http::header::HeaderMap;
 use anyhow::{Context, Result, anyhow};
 
 #[cfg(feature = "tls")]
+use rustls::version::TLS13;
+#[cfg(feature = "tls")]
 use rustls_pemfile as pemfile;
 
 #[cfg(unix)]
@@ -296,7 +298,7 @@ impl MiniserveConfig {
                 let private_key = pemfile::private_key(key_file)
                     .context("Reading private key file")?
                     .expect("No private key found");
-                let server_config = rustls::ServerConfig::builder()
+                let server_config = rustls::ServerConfig::builder_with_protocol_versions(&[&TLS13])
                     .with_no_client_auth()
                     .with_single_cert(cert_chain, private_key)?;
                 Some(server_config)

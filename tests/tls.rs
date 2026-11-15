@@ -1,12 +1,13 @@
 use assert_cmd::{Command, cargo};
 use predicates::str::contains;
 use reqwest::blocking::Client;
+use reqwest::tls::Version;
 use rstest::rstest;
 use select::{document::Document, node::Node};
 
 mod fixtures;
 
-use crate::fixtures::{Error, FILES, TestServer, reqwest_client, server};
+use crate::fixtures::{Error, FILES, TestServer, reqwest_client, reqwest_client_builder, server};
 
 /// Can start the server with TLS and receive encrypted responses.
 #[rstest]
@@ -31,6 +32,20 @@ fn tls_works(#[case] server: TestServer, reqwest_client: Client) -> Result<(), E
     for &file in FILES {
         assert!(parsed.find(|x: &Node| x.text() == file).next().is_some());
     }
+
+    Ok(())
+}
+
+/// TLS 1.2 is refused, even when rustls is built with support for it like in tests.
+#[rstest]
+fn tls_1_2_is_refused(
+    #[with(&["--tls-cert", "tests/data/cert_ec.pem", "--tls-key", "tests/data/key_ec.pem"])]
+    server: TestServer,
+) -> Result<(), Error> {
+    let client = reqwest_client_builder()
+        .tls_version_max(Version::TLS_1_2)
+        .build()?;
+    assert!(client.get(server.url()).send().is_err());
 
     Ok(())
 }

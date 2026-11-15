@@ -62,14 +62,18 @@ pub static FILE_SYMLINK: &str = "file_symlink";
 /// Name of a symlink pointing to a path that doesn't exist
 pub static BROKEN_SYMLINK: &str = "broken_symlink";
 
-/// Default reqwest client with some defaults set.
-#[fixture]
-pub fn reqwest_client() -> Client {
+/// Builder for the default reqwest client, for tests that need to adjust it.
+pub fn reqwest_client_builder() -> ClientBuilder {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
-    let reqwest_client = ClientBuilder::new().tls_danger_accept_invalid_certs(true);
-    reqwest_client.build().unwrap()
+    ClientBuilder::new().tls_danger_accept_invalid_certs(true)
+}
+
+/// Default reqwest client with some defaults set.
+#[fixture]
+pub fn reqwest_client() -> Client {
+    reqwest_client_builder().build().unwrap()
 }
 
 /// Test fixture which creates a temporary directory with a few files and directories inside.
