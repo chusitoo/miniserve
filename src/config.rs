@@ -9,7 +9,7 @@ use actix_web::http::header::HeaderMap;
 use anyhow::{Context, Result, anyhow};
 
 #[cfg(feature = "tls")]
-use rustls::version::TLS13;
+use rustls::{server::WebPkiClientVerifier, version::TLS13};
 #[cfg(feature = "tls")]
 use rustls_pemfile as pemfile;
 
@@ -298,8 +298,28 @@ impl MiniserveConfig {
                 let private_key = pemfile::private_key(key_file)
                     .context("Reading private key file")?
                     .expect("No private key found");
+                let client_cert_verifier = match args.tls_client_ca {
+                    Some(ca_path) => {
+                        let ca_file = &mut BufReader::new(
+                            File::open(&ca_path)
+                                .context(format!("Couldn't access TLS client CA {ca_path:?}"))?,
+                        );
+                        let invalid_ca = || format!("Invalid TLS client CA {ca_path:?}");
+                        let mut roots = rustls::RootCertStore::empty();
+                        for cert in pemfile::certs(ca_file) {
+                            roots
+                                .add(cert.with_context(invalid_ca)?)
+                                .with_context(invalid_ca)?;
+                        }
+                        if roots.is_empty() {
+                            anyhow::bail!("No certificate found in TLS client CA {ca_path:?}");
+                        }
+                        WebPkiClientVerifier::builder(roots.into()).build()?
+                    }
+                    None => WebPkiClientVerifier::no_client_auth(),
+                };
                 let server_config = rustls::ServerConfig::builder_with_protocol_versions(&[&TLS13])
-                    .with_no_client_auth()
+                    .with_client_cert_verifier(client_cert_verifier)
                     .with_single_cert(cert_chain, private_key)?;
                 Some(server_config)
             } else {

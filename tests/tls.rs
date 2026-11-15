@@ -1,7 +1,8 @@
 use assert_cmd::{Command, cargo};
 use predicates::str::contains;
+use reqwest::StatusCode;
 use reqwest::blocking::Client;
-use reqwest::tls::Version;
+use reqwest::tls::{Identity, Version};
 use rstest::rstest;
 use select::{document::Document, node::Node};
 
@@ -46,6 +47,60 @@ fn tls_1_2_is_refused(
         .tls_version_max(Version::TLS_1_2)
         .build()?;
     assert!(client.get(server.url()).send().is_err());
+
+    Ok(())
+}
+
+/// Arguments for a server that requires certificates issued by the test client CA
+const CLIENT_CA_ARGS: &[&str] = &[
+    "--tls-cert",
+    "tests/data/cert_ec.pem",
+    "--tls-key",
+    "tests/data/key_ec.pem",
+    "--tls-client-ca",
+    "tests/data/client_ca.pem",
+];
+
+/// Only clients with a certificate issued by the CA from --tls-client-ca are let in.
+#[rstest]
+#[case::trusted_cert(server(CLIENT_CA_ARGS), Some("tests/data/client.pem"), true)]
+#[case::untrusted_cert(server(CLIENT_CA_ARGS), Some("tests/data/client_untrusted.pem"), false)]
+#[case::no_cert(server(CLIENT_CA_ARGS), None, false)]
+fn tls_client_auth(
+    #[case] server: TestServer,
+    #[case] identity: Option<&str>,
+    #[case] accepted: bool,
+) -> Result<(), Error> {
+    let mut client = reqwest_client_builder();
+    if let Some(identity) = identity {
+        client = client.identity(Identity::from_pem(&std::fs::read(identity)?)?);
+    }
+    let response = client.build()?.get(server.url()).send();
+    let status = response.ok().map(|res| res.status());
+    assert_eq!(status, accepted.then_some(StatusCode::OK));
+
+    Ok(())
+}
+
+/// Unusable client CA files are reported.
+#[rstest]
+#[case::missing(&["--tls-client-ca", "wrong"], "Error: Couldn't access TLS client CA \"wrong\"")]
+#[case::without_certificate(
+    &["--tls-client-ca", "tests/data/key_ec.pem"],
+    "Error: No certificate found in TLS client CA \"tests/data/key_ec.pem\""
+)]
+fn unusable_tls_client_auth_file(#[case] args: &[&str], #[case] error: &str) -> Result<(), Error> {
+    Command::new(cargo::cargo_bin!("miniserve"))
+        .args([
+            "--tls-cert",
+            "tests/data/cert_ec.pem",
+            "--tls-key",
+            "tests/data/key_ec.pem",
+        ])
+        .args(args)
+        .assert()
+        .failure()
+        .stderr(contains(error));
 
     Ok(())
 }

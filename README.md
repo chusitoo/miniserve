@@ -87,6 +87,14 @@ If the parameter value has spaces, be sure to wrap it in quotes.
 (To achieve an A+ rating at https://www.ssllabs.com/ssltest/, enabling both fullchain TLS and HSTS is necessary.)
 Only TLS 1.3 is supported.
 
+### Require client certificates (mutual TLS):
+
+    miniserve --tls-cert my.cert --tls-key my.key --tls-client-ca client-ca.pem /tmp/myshare
+    # Check it in another terminal
+    curl --cert client.cert --key client.key https://localhost:8080
+
+Clients without a certificate issued by a CA in `client-ca.pem` can't connect.
+
 ### Upload a file using `curl`:
 
     # in one terminal
@@ -479,6 +487,11 @@ Options:
           TLS private key to use
 
           [env: MINISERVE_TLS_KEY=]
+
+      --tls-client-ca <TLS_CLIENT_CA>
+          Require TLS client certificates issued by a CA in this PEM file (mutual TLS)
+
+          [env: MINISERVE_TLS_CLIENT_CA=]
 
       --readme
           Enable README.md rendering in directories

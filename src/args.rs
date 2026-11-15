@@ -432,6 +432,11 @@ pub struct CliArgs {
     #[arg(long = "tls-key", requires = "tls_cert", value_hint = ValueHint::FilePath, env = "MINISERVE_TLS_KEY")]
     pub tls_key: Option<PathBuf>,
 
+    /// Require TLS client certificates issued by a CA in this PEM file (mutual TLS)
+    #[cfg(feature = "tls")]
+    #[arg(long = "tls-client-ca", requires = "tls_cert", value_hint = ValueHint::FilePath, env = "MINISERVE_TLS_CLIENT_CA")]
+    pub tls_client_ca: Option<PathBuf>,
+
     /// Enable README.md rendering in directories
     #[arg(long, env = "MINISERVE_README")]
     pub readme: bool,
