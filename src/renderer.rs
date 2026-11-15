@@ -813,9 +813,12 @@ fn image_viewer(show_delete: bool) -> Markup {
                     function show(i) {
                         index = (i + links.length) % links.length;
                         img.src = links[index].href;
+                        // Cached images are complete right away and need no spinner
+                        viewer.classList.toggle('loading', !img.complete);
                         caption.textContent = `${index + 1}/${links.length} · ${links[index].textContent}`;
                         prev.hidden = next.hidden = links.length < 2;
                     }
+                    ['load', 'error'].forEach(type => img.addEventListener(type, () => viewer.classList.remove('loading')));
 
                     links.forEach(link => link.addEventListener('click', e => {
                         // Modifier clicks still open the image in a new tab or window
