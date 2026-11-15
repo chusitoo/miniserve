@@ -176,7 +176,12 @@ pub fn page(
                             th.size { (sortable_title("size", "Size", sort_method, sort_order, search)) }
                             th.date { (sortable_title("date", "Last modification", sort_method, sort_order, search)) }
                             @if show_actions {
-                                th.actions { span { "Actions" } }
+                                th.actions {
+                                    div.actions-group {
+                                        input #rm-select-all type="checkbox" title="Select all";
+                                        button #rm-selected type="button" title="Delete selected" disabled { "✗" }
+                                    }
+                                }
                             }
                         }
                         tbody {
@@ -253,6 +258,9 @@ pub fn page(
                     }
                 }
                 (image_viewer(conf.rm_enabled && rm_allowed))
+                @if show_actions {
+                    (rm_selected_script())
+                }
             }
         }
     }
@@ -713,9 +721,63 @@ fn entry_row(
             }
             @if let Some(conf) = actions_conf {
                 td.actions-cell {
-                    (rm_form(conf.rm_route, &entry.link, route_prefix))
+                    div.actions-group {
+                        input.rm-select type="checkbox" title="Select" value=(entry.name);
+                        (rm_form(conf.rm_route, &entry.link, route_prefix))
+                    }
                 }
             }
+        }
+    }
+}
+
+/// Partial: script to delete all selected entries after a single confirmation
+fn rm_selected_script() -> Markup {
+    html! {
+        script {
+            (PreEscaped(r#"
+                (function() {
+                    const selectAll = document.getElementById('rm-select-all');
+                    const button = document.getElementById('rm-selected');
+                    // Rows can disappear, e.g. when deleting from the image viewer
+                    const boxes = () => Array.from(document.querySelectorAll('input.rm-select'));
+                    const selected = () => boxes().filter(box => box.checked);
+
+                    function update() {
+                        const count = selected().length;
+                        button.disabled = !count;
+                        button.title = count ? `Delete ${count} selected` : 'Delete selected';
+                        selectAll.checked = count > 0 && count === boxes().length;
+                        selectAll.indeterminate = count > 0 && count < boxes().length;
+                    }
+
+                    selectAll.addEventListener('change', () => {
+                        boxes().forEach(box => box.checked = selectAll.checked);
+                        update();
+                    });
+                    boxes().forEach(box => box.addEventListener('change', update));
+
+                    button.addEventListener('click', async () => {
+                        const items = selected().map(box => ({
+                            name: box.value + (box.closest('tr').classList.contains('entry-type-directory') ? '/' : ''),
+                            action: box.closest('td').querySelector('.rm_form').action,
+                        }));
+                        const names = items.map(item => item.name);
+                        const listed = names.slice(0, 10).join('\n') + (names.length > 10 ? `\n… and ${names.length - 10} more` : '');
+                        if (!confirm(`Are you sure you want to delete ${items.length} item${items.length > 1 ? 's' : ''}?\n\n${listed}`)) return;
+
+                        button.disabled = true;
+                        const failed = [];
+                        for (const item of items) {
+                            // Success redirects back to the listing, which doesn't need to be loaded each time
+                            const res = await fetch(item.action, { method: 'POST', redirect: 'manual' }).catch(() => null);
+                            if (!res || !(res.ok || res.type === 'opaqueredirect')) failed.push(item.name);
+                        }
+                        if (failed.length) alert(`Failed to delete:\n\n${failed.join('\n')}`);
+                        location.reload();
+                    });
+                })();
+            "#))
         }
     }
 }

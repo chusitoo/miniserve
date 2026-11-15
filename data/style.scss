@@ -466,10 +466,18 @@ tr.entry-type-directory .size-cell {
   }
 }
 
-td.actions-cell button {
+td.actions-cell button,
+th.actions button {
     padding: 0.1rem 0.3rem;
     border-radius: 0.2rem;
     border: none;
+}
+
+.actions-group {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
 }
 
 td.actions-cell .rm_form {
@@ -477,9 +485,14 @@ td.actions-cell .rm_form {
     place-content: center;
 }
 
-td.actions-cell .rm_form button {
+td.actions-cell .rm_form button,
+th.actions button {
     background: var(--rm_button_background);
     color: var(--rm_button_text_color);
+}
+
+th.actions button:disabled {
+    opacity: 0.4;
 }
 
 .history {

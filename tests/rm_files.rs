@@ -6,6 +6,8 @@ use percent_encoding::utf8_percent_encode;
 use reqwest::StatusCode;
 use reqwest::blocking::Client;
 use rstest::rstest;
+use select::document::Document;
+use select::predicate::{Attr, Class};
 use std::path::{Component, Path};
 use url::Url;
 
@@ -158,6 +160,34 @@ fn rm_works(
     #[case] path: &str,
 ) -> Result<(), Error> {
     assert_rm_ok(&reqwest_client, server.url(), path)
+}
+
+#[rstest]
+#[case(server(&["-R"]), "", true)]
+#[case(server(&[] as &[&str]), "", false)]
+#[case(server(&["-R", "someDir"]), "", false)]
+#[case(server(&["-R", "someDir"]), "someDir/", true)]
+fn rm_selection_shown_where_rm_allowed(
+    #[case] server: TestServer,
+    #[case] dir: &str,
+    #[case] shown: bool,
+    reqwest_client: Client,
+) -> Result<(), Error> {
+    let body = reqwest_client
+        .get(server.url().join(dir)?)
+        .send()?
+        .error_for_status()?;
+    let parsed = Document::from_read(body)?;
+    let checkboxes = parsed.find(Class("rm-select")).count();
+
+    assert_eq!(
+        parsed.find(Attr("id", "rm-selected")).next().is_some(),
+        shown
+    );
+    assert_eq!(checkboxes, parsed.find(Class("rm_form")).count());
+    assert_eq!(checkboxes > 0, shown);
+
+    Ok(())
 }
 
 #[rstest]
