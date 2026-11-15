@@ -252,6 +252,7 @@ pub fn page(
                         }
                     }
                 }
+                (image_viewer())
             }
         }
     }
@@ -715,6 +716,84 @@ fn entry_row(
                     (rm_form(conf.rm_route, &entry.link, route_prefix))
                 }
             }
+        }
+    }
+}
+
+/// Partial: overlay to page through the images of the listing
+fn image_viewer() -> Markup {
+    html! {
+        dialog #image-viewer {
+            button.close type="button" title="Close (Esc)" { "✕" }
+            button.prev type="button" title="Previous image (←)" { "‹" }
+            img alt="";
+            button.next type="button" title="Next image (→)" { "›" }
+            p.caption {}
+        }
+        script {
+            (PreEscaped(r#"
+                (function() {
+                    const viewer = document.getElementById('image-viewer');
+                    const img = viewer.querySelector('img');
+                    const caption = viewer.querySelector('.caption');
+                    const prev = viewer.querySelector('.prev');
+                    const next = viewer.querySelector('.next');
+                    const links = Array.from(document.querySelectorAll('tr.entry-type-file a.file[href], tr.entry-type-file a.symlink[href]'))
+                        .filter(link => /\.(apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(new URL(link.href).pathname));
+                    let index = 0;
+
+                    // Browsers without <dialog> keep opening images directly
+                    if (!links.length || !viewer.showModal) return;
+
+                    function show(i) {
+                        index = (i + links.length) % links.length;
+                        img.src = links[index].href;
+                        caption.textContent = `${index + 1}/${links.length} · ${links[index].textContent}`;
+                    }
+
+                    links.forEach((link, i) => link.addEventListener('click', e => {
+                        // Modifier clicks still open the image in a new tab or window
+                        if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+                        e.preventDefault();
+                        show(i);
+                        viewer.showModal();
+                        // Lets the browser's back button close the viewer instead of leaving the page
+                        history.pushState({ imageViewer: true }, '');
+                    }));
+                    addEventListener('popstate', () => { if (viewer.open) viewer.close(); });
+                    viewer.addEventListener('close', () => {
+                        // Don't flash the previous image when the viewer is reopened
+                        img.removeAttribute('src');
+                        if (history.state && history.state.imageViewer) history.back();
+                    });
+
+                    prev.hidden = next.hidden = links.length < 2;
+                    prev.addEventListener('click', () => show(index - 1));
+                    next.addEventListener('click', () => show(index + 1));
+                    viewer.querySelector('.close').addEventListener('click', () => viewer.close());
+                    // Clicks next to the image land on the dialog itself
+                    viewer.addEventListener('click', e => { if (e.target === viewer) viewer.close(); });
+                    addEventListener('keydown', e => {
+                        if (!viewer.open) return;
+                        if (e.key === 'ArrowLeft') show(index - 1);
+                        if (e.key === 'ArrowRight') show(index + 1);
+                        if (e.key === 'Escape') viewer.close();
+                    });
+                    // Swipes only: ignore pinches and panning around a zoomed-in page
+                    let touchStart = null;
+                    viewer.addEventListener('touchstart', e => {
+                        const zoomed = window.visualViewport && visualViewport.scale > 1;
+                        touchStart = e.touches.length === 1 && !zoomed ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+                    }, { passive: true });
+                    viewer.addEventListener('touchend', e => {
+                        if (!touchStart || e.touches.length) return;
+                        const dx = e.changedTouches[0].clientX - touchStart.x;
+                        const dy = e.changedTouches[0].clientY - touchStart.y;
+                        touchStart = null;
+                        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) show(index + (dx < 0 ? 1 : -1));
+                    });
+                })();
+            "#))
         }
     }
 }
