@@ -252,7 +252,7 @@ pub fn page(
                         }
                     }
                 }
-                (image_viewer())
+                (image_viewer(conf.rm_enabled && rm_allowed))
             }
         }
     }
@@ -721,10 +721,13 @@ fn entry_row(
 }
 
 /// Partial: overlay to page through the images of the listing
-fn image_viewer() -> Markup {
+fn image_viewer(show_delete: bool) -> Markup {
     html! {
         dialog #image-viewer {
             button.close type="button" title="Close (Esc)" { "✕" }
+            @if show_delete {
+                button.delete type="button" title="Delete" { "🗑" }
+            }
             button.prev type="button" title="Previous image (←)" { "‹" }
             img alt="";
             button.next type="button" title="Next image (→)" { "›" }
@@ -749,13 +752,14 @@ fn image_viewer() -> Markup {
                         index = (i + links.length) % links.length;
                         img.src = links[index].href;
                         caption.textContent = `${index + 1}/${links.length} · ${links[index].textContent}`;
+                        prev.hidden = next.hidden = links.length < 2;
                     }
 
-                    links.forEach((link, i) => link.addEventListener('click', e => {
+                    links.forEach(link => link.addEventListener('click', e => {
                         // Modifier clicks still open the image in a new tab or window
                         if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
                         e.preventDefault();
-                        show(i);
+                        show(links.indexOf(link));
                         viewer.showModal();
                         // Lets the browser's back button close the viewer instead of leaving the page
                         history.pushState({ imageViewer: true }, '');
@@ -767,10 +771,24 @@ fn image_viewer() -> Markup {
                         if (history.state && history.state.imageViewer) history.back();
                     });
 
-                    prev.hidden = next.hidden = links.length < 2;
                     prev.addEventListener('click', () => show(index - 1));
                     next.addEventListener('click', () => show(index + 1));
                     viewer.querySelector('.close').addEventListener('click', () => viewer.close());
+                    const del = viewer.querySelector('.delete');
+                    if (del) del.addEventListener('click', async () => {
+                        const link = links[index];
+                        if (!confirm(`Are you sure you want to delete ${link.textContent}?`)) return;
+                        del.disabled = true;
+                        const res = await fetch(link.closest('tr').querySelector('.rm_form').action, { method: 'POST' }).catch(() => null);
+                        del.disabled = false;
+                        if (!res || !res.ok) return alert(`Failed to delete ${link.textContent}`);
+                        link.closest('tr').remove();
+                        // The user may have moved to another image while the request was running
+                        const i = links.indexOf(link);
+                        links.splice(i, 1);
+                        if (!links.length) return viewer.close();
+                        show(index > i ? index - 1 : index);
+                    });
                     // Clicks next to the image land on the dialog itself
                     viewer.addEventListener('click', e => { if (e.target === viewer) viewer.close(); });
                     addEventListener('keydown', e => {
